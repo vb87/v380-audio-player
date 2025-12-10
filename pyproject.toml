@@ -1,0 +1,15 @@
+[project]
+name = "v380-reverse-engineering"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "black>=25.11.0",
+    "flake8-bugbear>=24.12.12",
+    "isort>=6.1.0",
+    "pycryptodome>=3.23.0",
+    "pylint>=3.3.9",
+    "pyyaml>=6.0.3",
+    "questionary>=2.1.1",
+]

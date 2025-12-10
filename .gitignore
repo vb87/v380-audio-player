@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+ignore
+*.wav
+*.mp3
+*.opus
+.env
+data.yaml
+.vscode/settings.json
