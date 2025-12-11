@@ -1,4 +1,5 @@
 import audioop
+import queue
 import socket
 import struct
 import threading
@@ -250,6 +251,19 @@ class Camera:
         socket_2.close()
 
 
+def thread_wrapper(
+    target_func: Callable[[Any], None],
+    args: tuple[Any],
+    err_queue: queue.Queue[Exception],
+    cam_name: str,
+):
+    try:
+        target_func(*args)
+    except Exception as e:
+        e.camera_name = cam_name  # pyright: ignore[reportAttributeAccessIssue]
+        err_queue.put(e)
+
+
 def main():
     storage = Storage()
     cams = storage.load()
@@ -257,7 +271,7 @@ def main():
         print("data.yaml is empty. Please fill it up first.")
         return
     choices: Optional[list[str]] = checkbox("Select a camera:", choices=cams).ask()
-    if choices is None:
+    if not choices:
         return
 
     audio_folder = Path("audio")
@@ -266,24 +280,44 @@ def main():
     input_wav: Optional[Path] = select("Select an audio file:", files).ask()
     if input_wav is None:
         return
-
+    error_queue: queue.Queue[Exception] = queue.Queue()
     threads: list[threading.Thread] = []
-    for choice in choices:
-        cam_info = cams.get(choice)
-        cam = Camera()
+
+    print(f"Streams started on {len(choices)} cameras. Press Ctrl+C to stop.")
+
+    for c in choices:
+        cam_obj = Camera(c)
+        url = cams.get(c)
+
         t = threading.Thread(
-            target=cam.play_audio, args=(cam_info, input_wav), daemon=True
+            target=thread_wrapper,
+            args=(cam_obj.play_audio, (url, input_wav), error_queue, c),
         )
+
+        t.daemon = True
         t.start()
         threads.append(t)
-    print("Press Ctrl+C to stop playing audio...")
-    try:
-        for t in threads:
-            while t.is_alive():
-                t.join(0.5)
-    except KeyboardInterrupt:
-        print("\nStopping all streams...")
 
+    try:
+        while True:
+            if not any(t.is_alive() for t in threads) and error_queue.empty():
+                print("All audio streams finished.")
+                break
+
+            try:
+                exc = error_queue.get_nowait()
+
+                name = getattr(exc, "camera_name", "Unknown")
+                print(f"Error on camera '{name}': {exc}")
+
+                raise exc
+            except queue.Empty:
+                pass
+
+            time.sleep(0.5)
+
+    except KeyboardInterrupt:
+        print("\nStopping...")
 
 if __name__ == "__main__":
     main()
