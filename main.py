@@ -1,17 +1,20 @@
 import audioop
-from pathlib import Path
 import socket
 import struct
 import threading
 import time
 import wave
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 from Crypto.Cipher import AES
-
-from hex import PacketGen
 from questionary import Choice, select
 
+from hex import PacketGen
 from storage import Storage
+
+if TYPE_CHECKING:
+    from Crypto.Cipher._mode_ecb import EcbMode
 
 PORTNUM = 8800
 
@@ -33,31 +36,33 @@ def generate_magic_key(session_bytes: bytes):
     return bytes(key)
 
 
-CONNECTION_ALIVE = True
+connection_alive = True
 
 
 def listen_to_camera(sock: socket.socket):
     "Continuously receive data from socket until server closes connection"
-    global CONNECTION_ALIVE
-    while CONNECTION_ALIVE:
+    global connection_alive
+    while connection_alive:
         try:
             data = sock.recv(1024)
             print("RECEIVED:", data.hex())
             if not data:
                 print("\n[!] Connection closed by camera.")
-                CONNECTION_ALIVE = False
+                connection_alive = False
                 break
         except Exception:
             break
 
 
-def precompute_payloads(wav_path, cipher, encrypt: bool = True):
+def precompute_payloads(
+    wav_path: str, cipher: Optional["EcbMode"], encrypt: bool = True
+) -> tuple[list[bytes], float]:
     """
     Reads WAV, Encodes to ADPCM, Swaps Nibbles, Adds Internal Header, and Encrypts.
     Returns a list of ENCRYPTED PAYLOADS (excluding the transport header).
     """
     print("[*] Pre-computing and encrypting audio...")
-    payloads = []
+    payloads: list[bytes] = []
 
     try:
         wav = wave.open(wav_path, "rb")
@@ -109,7 +114,11 @@ def precompute_payloads(wav_path, cipher, encrypt: bool = True):
         if len(raw_payload) < 256:
             raw_payload += b"\x00" * (256 - len(raw_payload))
 
-        encrypted_payload = cipher.encrypt(raw_payload) if encrypt else raw_payload
+        encrypted_payload = (
+            cipher.encrypt(raw_payload)
+            if encrypt and cipher is not None
+            else raw_payload
+        )
 
         payloads.append(encrypted_payload)
 
@@ -118,8 +127,6 @@ def precompute_payloads(wav_path, cipher, encrypt: bool = True):
 
 
 def main():
-    global CONNECTION_ALIVE
-
     storage = Storage()
     cams = storage.load()
     if cams is None:
@@ -137,7 +144,7 @@ def main():
     audio_folder = Path("audio")
     audio_folder.touch(exist_ok=True)
     files = [Choice(x.name, x) for x in audio_folder.glob("*.wav")]
-    input_wav: Path = select("Select an audio file:", files).ask()
+    input_wav: Optional[Path] = select("Select an audio file:", files).ask()
     if input_wav is None:
         return
 
@@ -172,7 +179,9 @@ def main():
     if encrypt_data:
         aes_key = generate_magic_key(session_id_bytes)
         print(f"    AES Key: {aes_key.hex()}")
-        cipher = AES.new(aes_key, AES.MODE_ECB)
+        cipher = AES.new(  # pyright: ignore[reportUnknownMemberType]
+            aes_key, AES.MODE_ECB
+        )
     encrypted_chunks, packet_duration = precompute_payloads(
         str(input_wav.resolve()), cipher, encrypt=encrypt_data
     )
@@ -201,7 +210,7 @@ def main():
 
     time.sleep(0.5)
 
-    if not CONNECTION_ALIVE:
+    if not connection_alive:
         print("[!] Camera rejected handshake.")
         return
 
@@ -214,7 +223,7 @@ def main():
         audio_index = 0
         total_chunks = len(encrypted_chunks)
 
-        while CONNECTION_ALIVE:
+        while connection_alive:
             current_payload = encrypted_chunks[audio_index]
 
             header = packet_gen.get_audio_payload_header(total_packets_sent)

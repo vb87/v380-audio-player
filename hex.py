@@ -9,7 +9,9 @@ v380_key = "macrovideo+*#!^@"
 
 
 def encrypt(key: str, data: bytes):
-    aes = AES.new(key.encode(), AES.MODE_ECB)
+    aes = AES.new(  # pyright: ignore[reportUnknownMemberType]
+        key.encode(), AES.MODE_ECB
+    )
     msg = aes.encrypt(pad(data, 16))
     return msg
 
@@ -39,7 +41,7 @@ class PacketGen:
 
     def get_audio_handshake(self, session_bytes: bytes):
         if len(session_bytes) != 4:
-            return ValueError("Session bytes must be length 4")
+            raise ValueError("Session bytes must be length 4")
         # Header code from HSLiveDataV2Transmitter::sendSpeakAudioToDevice
         handshake = bytearray.fromhex(f"79010000{self.cam_hex}").ljust(85, b"\x00")
         handshake[8:12] = session_bytes

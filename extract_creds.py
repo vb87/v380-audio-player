@@ -4,7 +4,7 @@ from Crypto.Cipher import AES
 from questionary import path as q_path
 
 
-def count(packet):
+def count(packet: bytes):
     counter = 0
     for b in packet:
         if b != 0:
@@ -13,9 +13,14 @@ def count(packet):
             return counter
 
 
-def decrypt(key, data):
-    aes = AES.new(key.encode(), AES.MODE_ECB)
-    def unpad(date): return date[0 : -date[-1]]
+def decrypt(key: str, data: bytes):
+    aes = AES.new(  # pyright: ignore[reportUnknownMemberType]
+        key.encode(), AES.MODE_ECB
+    )
+
+    def unpad(date: bytes):
+        return date[0 : -date[-1]]
+
     msg = aes.decrypt(data)
     print("\nDecrypting with key (utf-8): \t" + key + f"(Len: {len(key)})")
     print("Decrypting data(hex):\t\t" + data.hex() + f"(Len: {len(data)})")
@@ -32,18 +37,22 @@ def decryptPacket(packet: bytes):
 
     randomKey2: str = packet[81:97].decode("utf-8")
 
-    usernameLenght = count(packet[49:])
-    username = packet[49 : 49 + usernameLenght].decode("utf-8")
+    username_length = count(packet[49:])
+    if username_length is None:
+        raise ValueError("Inavalid packet")
+    username = packet[49 : 49 + username_length].decode("utf-8")
 
-    origEncryptLenght = count(packet[97:])
-    origEncrypted = packet[97 : 97 + origEncryptLenght]
+    orig_encrypt_length = count(packet[97:])
+    if orig_encrypt_length is None:
+        raise ValueError("Inavalid packet")
+    orig_encrypt = packet[97 : 97 + orig_encrypt_length]
 
-    decrypted = decrypt(randomKey2, origEncrypted)
+    decrypted = decrypt(randomKey2, orig_encrypt)
 
     finalDecrypted = decrypt("macrovideo+*#!^@", decrypted).decode("utf-8")
 
     result = {"username": username, "password": finalDecrypted}
-    return result, randomKey2, origEncrypted
+    return result, randomKey2, orig_encrypt
 
 
 def main():
@@ -58,7 +67,7 @@ def main():
             print("It should be a file!")
         with resolved_path.open("rb") as f:
             file_bytes = f.read()
-        if file_bytes.startswith(b"\x8F\x04"):
+        if file_bytes.startswith(b"\x8f\x04"):
             break
         print("Invalid file!")
     data, _, _ = decryptPacket(file_bytes)
