@@ -2,7 +2,7 @@
 Play audio on your V380 camera because why not
 
 > [!NOTE]
-> I've only tested this with V380 cameras that use Version 3, 31, and 32. It is very likely that it will fail on other versions. It will tell you what version your camera uses once you've successfully sent a login request
+> I've only tested this with V380 cameras that use Version 3, 31, and 32. It is very likely that it will fail on other versions. It will tell you what version your camera uses once you've successfully sent a login request. Having correct credentials is not required to get the version number.
 
 # Building
 Make sure you have Python 3.9 and [uv](https://github.com/astral-sh/uv) installed
