@@ -261,7 +261,7 @@ def main():
         return
 
     audio_folder = Path("audio")
-    audio_folder.touch(exist_ok=True)
+    audio_folder.mkdir(exist_ok=True)
     files = [Choice(x.name, x) for x in audio_folder.glob("*.wav")]
     input_wav: Optional[Path] = select("Select an audio file:", files).ask()
     if input_wav is None:
