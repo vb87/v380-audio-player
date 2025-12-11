@@ -1,4 +1,5 @@
 import audioop
+import logging
 import queue
 import socket
 import struct
@@ -6,8 +7,7 @@ import threading
 import time
 import wave
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
-
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from Crypto.Cipher import AES
 from questionary import Choice, checkbox, select
 
@@ -23,10 +23,27 @@ PORTNUM = 8800
 MAGIC_1 = 0x618123462C14795C
 MAGIC_2 = 0x82800DF0
 
+logger = logging.getLogger("cams")
+logger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler('debug.log')
+fh.setLevel(logging.DEBUG)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+
+ch.setFormatter(logging.Formatter('[%(name)s]: %(message)s'))
+fh.setFormatter(logging.Formatter('%(name)s:%(levelname)s: %(message)s'))
+
+logger.addHandler(ch)  # type: ignore
+logger.addHandler(fh)  # type: ignore
+
 
 class Camera:
-    def __init__(self):
+    def __init__(self, name: str):
         self.connection_alive = True
+        self.name = name
+        self.logger = logging.getLogger(f"cams.{name}")
 
     def generate_magic_key(self, handle_bytes: bytes):
         # pad to 16-bytes
@@ -40,15 +57,19 @@ class Camera:
 
         return bytes(key)
 
+    def _receive_socket(self, sock: socket.socket):
+        data = sock.recv(1024)
+        self.logger.debug("RECEIVED: " + data.hex())
+        return data
+
     def listen_to_camera(self, sock: socket.socket):
         "Continuously receive data from socket until server closes connection"
 
         while self.connection_alive:
             try:
-                data = sock.recv(1024)
-                print("RECEIVED:", data.hex())
+                data = self._receive_socket(sock)
                 if not data:
-                    print("\n[!] Connection closed by camera.")
+                    self.logger.info("\n[!] Connection closed by camera.")
                     self.connection_alive = False
                     break
             except Exception:
@@ -61,13 +82,13 @@ class Camera:
         Reads WAV, Encodes to ADPCM, Swaps Nibbles, Adds Internal Header, and Encrypts.
         Returns a list of ENCRYPTED PAYLOADS (excluding the transport header).
         """
-        print("[*] Pre-computing and encrypting audio...")
+        self.logger.info("[*] Pre-computing and encrypting audio...")
         payloads: list[bytes] = []
 
         try:
             wav = wave.open(wav_path, "rb")
         except Exception:
-            print("Error: input.wav not found")
+            self.logger.info("Error: input.wav not found")
             return [], 0
 
         current_index = 0
@@ -122,7 +143,7 @@ class Camera:
 
             payloads.append(encrypted_payload)
 
-        print(f"[*] Ready. Loaded {len(payloads)} chunks.")
+        self.logger.info(f"[*] Ready. Loaded {len(payloads)} chunks.")
         return payloads, packet_duration
 
     def play_audio(self, cam_info: dict[str, Any], audio_file: Path):
@@ -135,35 +156,34 @@ class Camera:
             raise ValueError("One of the cameras is missing 'cam_id'")
 
         if cam_ip_addr is None:
-            raise ValueError("One of the cameras is missing 'cam_ip_addr'")
+            raise ValueError("One of the cameras is missing 'ip'")
 
         if user is None:
             raise ValueError("One of the cameras is missing 'user'")
 
         if passwd is None:
-            raise ValueError("One of the cameras is missing 'passwd'")
+            raise ValueError("One of the cameras is missing 'pass'")
 
         packet_gen = PacketGen(cam_id, user, passwd)
 
-        print("[1] Connecting to fetch Handle...")
+        self.logger.info("[1] Connecting to fetch Handle...")
         socket_1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             socket_1.connect((cam_ip_addr, PORTNUM))
             socket_1.send(packet_gen.get_login())
-            response = socket_1.recv(1024)
-            print("RECEIVED:", response.hex())
+            response = self._receive_socket(socket_1)
             socket_1.close()
         except Exception as e:
-            print(f"Error connecting: {e}")
+            self.logger.info(f"Error connecting: {e}")
             return
 
         if not response.startswith(b"\x90\x04"):
-            print(f"Error: Expected 90 04, got {response.hex()[:10]}")
+            self.logger.info(f"Error: Expected 90 04, got {response.hex()[:10]}")
             return
 
         handle_id_bytes = response[13:17]
         version = response[12]
-        print(f"CAMERA VERSION: {version}")
+        self.logger.info(f"CAMERA VERSION: {version}")
         # From HSLiveDataV2Transmitter::updateAesKey
         encrypt_data = True if version > 30 else False
 
@@ -173,7 +193,7 @@ class Camera:
         cipher = None
         if encrypt_data:
             aes_key = self.generate_magic_key(handle_id_bytes)
-            print(f"AES Key: {aes_key.hex()}")
+            self.logger.info(f"AES Key: {aes_key.hex()}")
             cipher = AES.new(  # pyright: ignore[reportUnknownMemberType]
                 aes_key, AES.MODE_ECB
             )
@@ -182,17 +202,17 @@ class Camera:
         )
 
         if not encrypted_chunks:
-            print("No audio packets generated.")
+            self.logger.info("No audio packets generated.")
             return
 
-        print("[2] Connecting to Stream Audio...")
+        self.logger.info("[2] Connecting to Stream Audio...")
         socket_2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         socket_2.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
         try:
             socket_2.connect((cam_ip_addr, PORTNUM))
         except Exception as e:
-            print(f"Stream connect failed: {e}")
+            self.logger.info(f"Stream connect failed: {e}")
             return
 
         threading.Thread(
@@ -202,16 +222,16 @@ class Camera:
         handshake = packet_gen.get_audio_handshake(handle_id_bytes)
         handshake[8:12] = handle_id_bytes
 
-        print("[>] Sending Audio Handshake...")
+        self.logger.info("[>] Sending Audio Handshake...")
         socket_2.send(handshake)
 
         time.sleep(0.5)
 
         if not self.connection_alive:
-            print("[!] Camera rejected handshake.")
+            self.logger.info("[!] Camera rejected handshake.")
             return
 
-        print(
+        self.logger.info(
             f"[TX] Streaming Loop Started (Duration: {packet_duration}s per chunk)..."
         )
 
@@ -244,9 +264,8 @@ class Camera:
                     pass
 
         except KeyboardInterrupt:
-            print("Stopping...")
-
-        print("Done sending.")
+            self.logger.info("Stopping...")
+        self.logger.info("Done sending.")
         time.sleep(1)
         socket_2.close()
 
@@ -318,6 +337,7 @@ def main():
 
     except KeyboardInterrupt:
         print("\nStopping...")
+
 
 if __name__ == "__main__":
     main()
