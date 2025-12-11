@@ -6,10 +6,19 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "black>=25.11.0",
+    "commitizen>=4.10.0",
     "flake8-bugbear>=24.12.12",
     "isort>=6.1.0",
+    "pre-commit>=4.3.0",
     "pycryptodome>=3.23.0",
     "pylint>=3.3.9",
     "pyyaml>=6.0.3",
     "questionary>=2.1.1",
 ]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "semver2"
+version_provider = "uv"
+update_changelog_on_bump = true
