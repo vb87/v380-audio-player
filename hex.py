@@ -39,12 +39,12 @@ class PacketGen:
 
         return bytes.fromhex(login_hex_str).ljust(512, b"\x00")
 
-    def get_audio_handshake(self, session_bytes: bytes):
-        if len(session_bytes) != 4:
-            raise ValueError("Session bytes must be length 4")
+    def get_audio_handshake(self, handle_bytes: bytes):
+        if len(handle_bytes) != 4:
+            raise ValueError("Handle bytes must be length 4")
         # Header code from HSLiveDataV2Transmitter::sendSpeakAudioToDevice
         handshake = bytearray.fromhex(f"79010000{self.cam_hex}").ljust(85, b"\x00")
-        handshake[8:12] = session_bytes
+        handshake[8:12] = handle_bytes
         return handshake
 
     def get_audio_payload_header(self, packet_sent: int):

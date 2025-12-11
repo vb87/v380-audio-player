@@ -27,9 +27,9 @@ class Camera:
     def __init__(self):
         self.connection_alive = True
 
-    def generate_magic_key(self, session_bytes: bytes):
+    def generate_magic_key(self, handle_bytes: bytes):
         # pad to 16-bytes
-        key = bytearray(session_bytes.ljust(16, b"\x00")[:16])
+        key = bytearray(handle_bytes.ljust(16, b"\x00")[:16])
 
         # unsigned long long (8 bytes) (little endian)
         key[4:12] = struct.pack("<Q", MAGIC_1)
@@ -144,7 +144,7 @@ class Camera:
 
         packet_gen = PacketGen(cam_id, user, passwd)
 
-        print("[1] Connecting to fetch Session/Handle...")
+        print("[1] Connecting to fetch Handle...")
         socket_1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             socket_1.connect((cam_ip_addr, PORTNUM))
@@ -160,19 +160,19 @@ class Camera:
             print(f"Error: Expected 90 04, got {response.hex()[:10]}")
             return
 
-        session_id_bytes = response[13:17]
+        handle_id_bytes = response[13:17]
         version = response[12]
         print(f"CAMERA VERSION: {version}")
         # From HSLiveDataV2Transmitter::updateAesKey
         encrypt_data = True if version > 30 else False
 
-        print(f"Session: {session_id_bytes.hex()}")
+        self.logger.info(f"Handle: {handle_id_bytes.hex()}")
 
         aes_key = None
         cipher = None
         if encrypt_data:
-            aes_key = self.generate_magic_key(session_id_bytes)
-            print(f"    AES Key: {aes_key.hex()}")
+            aes_key = self.generate_magic_key(handle_id_bytes)
+            print(f"AES Key: {aes_key.hex()}")
             cipher = AES.new(  # pyright: ignore[reportUnknownMemberType]
                 aes_key, AES.MODE_ECB
             )
@@ -198,8 +198,8 @@ class Camera:
             target=self.listen_to_camera, args=(socket_2,), daemon=True
         ).start()
 
-        handshake = packet_gen.get_audio_handshake(session_id_bytes)
-        handshake[8:12] = session_id_bytes
+        handshake = packet_gen.get_audio_handshake(handle_id_bytes)
+        handshake[8:12] = handle_id_bytes
 
         print("[>] Sending Audio Handshake...")
         socket_2.send(handshake)
