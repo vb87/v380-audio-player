@@ -146,7 +146,12 @@ class Camera:
         self.logger.info(f"[*] Ready. Loaded {len(payloads)} chunks.")
         return payloads, packet_duration
 
-    def play_audio(self, cam_info: dict[str, Any], audio_file: Path):
+    def play_audio(
+        self,
+        cam_info: dict[str, Any],
+        audio_file: Path,
+        socket_queue: queue.Queue[socket.socket],
+    ):
         cam_id = cam_info.get("cam_id")
         cam_ip_addr = cam_info.get("ip")
         user = cam_info.get("user")
@@ -168,6 +173,7 @@ class Camera:
 
         self.logger.info("[1] Connecting to fetch Handle...")
         socket_1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_queue.put(socket_1)
         try:
             socket_1.connect((cam_ip_addr, PORTNUM))
             socket_1.send(packet_gen.get_login())
@@ -207,6 +213,7 @@ class Camera:
 
         self.logger.info("[2] Connecting to Stream Audio...")
         socket_2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_queue.put(socket_2)
         socket_2.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
         try:
@@ -235,7 +242,6 @@ class Camera:
             f"[TX] Streaming Loop Started (Duration: {packet_duration}s per chunk)..."
         )
 
-        try:
             start_time = time.time()
 
             total_packets_sent = 0
@@ -262,12 +268,6 @@ class Camera:
                     time.sleep(sleep_duration)
                 else:
                     pass
-
-        except KeyboardInterrupt:
-            self.logger.info("Stopping...")
-        self.logger.info("Done sending.")
-        time.sleep(1)
-        socket_2.close()
 
 
 def thread_wrapper(
@@ -300,17 +300,18 @@ def main():
     if input_wav is None:
         return
     error_queue: queue.Queue[Exception] = queue.Queue()
+    socket_queue: queue.Queue["socket.socket"] = queue.Queue()
     threads: list[threading.Thread] = []
 
     print(f"Streams started on {len(choices)} cameras. Press Ctrl+C to stop.")
 
-    for c in choices:
-        cam_obj = Camera(c)
-        url = cams.get(c)
+    for cam_name in choices:
+        cam_obj = Camera(cam_name)
+        url = cams.get(cam_name)
 
         t = threading.Thread(
             target=thread_wrapper,
-            args=(cam_obj.play_audio, (url, input_wav), error_queue, c),
+            args=(cam_obj.play_audio, (url, input_wav, socket_queue), error_queue, cam_name),
         )
 
         t.daemon = True
@@ -337,6 +338,14 @@ def main():
 
     except KeyboardInterrupt:
         print("\nStopping...")
+        socket_closed = 0
+        while not socket_queue.empty():
+            socket = socket_queue.get()
+            if not getattr(socket, "_closed", False):
+                socket.close()
+                socket_closed += 1
+        print(f"{socket_closed} sockets closed!")
+
 
 
 if __name__ == "__main__":
