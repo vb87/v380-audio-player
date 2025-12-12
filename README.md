@@ -14,6 +14,7 @@ Make sure you have Python 3.9 and [uv](https://github.com/astral-sh/uv) installe
 # Usage
 - Place your audio files in a subfolder called `audio`. It should be in 8khz Mono WAV format.
 - Create a file `data.yaml` and populate it with your camera data. You can refer to `data.EXAMPLE.yaml` for the format.
+- Run the program. You can select multiple cameras, and select an audio file to play.
 
 # Getting Credentials
 Run `uv run extract_creds.py` to find the specific credentials used for your camera. It's not actually the same as the one you use to login to the app itself, especially on Version 32. An easy way to do this is to install PCAPdroid and V380 on an Android phone. 
