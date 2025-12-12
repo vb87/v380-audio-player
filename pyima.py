@@ -108,7 +108,6 @@ class PyIma:
 
     def _encode_sample(self, sample: int):
         # encode one linear pcm sample to ima adpcm neeble
-        assert isinstance(sample, int)
         delta = sample - self._encoder_predicted
 
         if delta >= 0:

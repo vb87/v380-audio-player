@@ -105,7 +105,6 @@ class Camera:
                 break
 
             raw_payload = py_ima.encode_block(raw_bytes)
-            print("ASdasdasdasdas")
             if len(raw_payload) < 256:
                 raw_payload += b"\x00" * (256 - len(raw_payload))
 
