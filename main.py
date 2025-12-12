@@ -1,4 +1,3 @@
-import audioop
 import logging
 import queue
 import socket
@@ -8,10 +7,12 @@ import time
 import wave
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
+
 from Crypto.Cipher import AES
 from questionary import Choice, checkbox, select
 
 from hex import PacketGen
+from pyima import PyIma
 from storage import Storage
 
 if TYPE_CHECKING:
@@ -91,47 +92,20 @@ class Camera:
             self.logger.info("Error: input.wav not found")
             return [], 0
 
-        current_index = 0
-
         # we want 252 bytes of data, it's in 2-byte format,
         # and there's one extra byte for the predictor
         samples_per_chunk = 252 * 2 + 1
 
         # 8khz sample rate
         packet_duration = samples_per_chunk / 8000.0
-
-        state = None
-
+        py_ima = PyIma()
         while True:
             raw_bytes = wav.readframes(samples_per_chunk)
             if len(raw_bytes) < samples_per_chunk * 2:
                 break
 
-            # signed short (little endian)
-            # take first 16-bit int and use as predictor
-            val_pred = struct.unpack("<h", raw_bytes[:2])[0]
-            state = (val_pred, current_index)
-
-            # width = 2 -> every sample is in 2-byte format i.e. 16-bits wide.
-            # we also trim the predictor byte, works WITH the predictor byte included
-            # but both produce the same output
-            adpcm_data, new_state = audioop.lin2adpcm(raw_bytes[2:], 2, state)
-
-            # Clamp index to 0-88 just in case
-            current_index = new_state[1]
-            current_index = max(0, min(88, current_index))
-
-            # nibble swap (0xab -> 0xba)
-            swapped_adpcm = bytearray()
-            for byte in adpcm_data:
-                swapped_adpcm.append(((byte & 0x0F) << 4) | ((byte & 0xF0) >> 4))
-
-            # little-endian: signed short + 2 signed chars
-            internal_header = struct.pack("<hbb", val_pred, current_index, 0)
-
-            # 4-byte header + 252 bytes audio = 256-byte payload
-            raw_payload = internal_header + swapped_adpcm[:252]
-
+            raw_payload = py_ima.encode_block(raw_bytes)
+            print("ASdasdasdasdas")
             if len(raw_payload) < 256:
                 raw_payload += b"\x00" * (256 - len(raw_payload))
 
@@ -140,9 +114,7 @@ class Camera:
                 if encrypt and cipher is not None
                 else raw_payload
             )
-
             payloads.append(encrypted_payload)
-
         self.logger.info(f"[*] Ready. Loaded {len(payloads)} chunks.")
         return payloads, packet_duration
 
@@ -242,32 +214,32 @@ class Camera:
             f"[TX] Streaming Loop Started (Duration: {packet_duration}s per chunk)..."
         )
 
-            start_time = time.time()
+        start_time = time.time()
 
-            total_packets_sent = 0
-            audio_index = 0
-            total_chunks = len(encrypted_chunks)
+        total_packets_sent = 0
+        audio_index = 0
+        total_chunks = len(encrypted_chunks)
 
-            while self.connection_alive:
-                current_payload = encrypted_chunks[audio_index]
+        while self.connection_alive:
+            current_payload = encrypted_chunks[audio_index]
 
-                header = packet_gen.get_audio_payload_header(total_packets_sent)
+            header = packet_gen.get_audio_payload_header(total_packets_sent)
 
-                # 16-byte header + 256-byte data = 272-byte payload
-                packet = header + current_payload
+            # 16-byte header + 256-byte data = 272-byte payload
+            packet = header + current_payload
 
-                socket_2.send(packet)
+            socket_2.send(packet)
 
-                total_packets_sent += 1
-                audio_index = (audio_index + 1) % total_chunks
+            total_packets_sent += 1
+            audio_index = (audio_index + 1) % total_chunks
 
-                target_time = start_time + (total_packets_sent * packet_duration)
-                sleep_duration = target_time - time.time()
+            target_time = start_time + (total_packets_sent * packet_duration)
+            sleep_duration = target_time - time.time()
 
-                if sleep_duration > 0:
-                    time.sleep(sleep_duration)
-                else:
-                    pass
+            if sleep_duration > 0:
+                time.sleep(sleep_duration)
+            else:
+                pass
 
 
 def thread_wrapper(
@@ -311,7 +283,12 @@ def main():
 
         t = threading.Thread(
             target=thread_wrapper,
-            args=(cam_obj.play_audio, (url, input_wav, socket_queue), error_queue, cam_name),
+            args=(
+                cam_obj.play_audio,
+                (url, input_wav, socket_queue),
+                error_queue,
+                cam_name,
+            ),
         )
 
         t.daemon = True
@@ -345,7 +322,6 @@ def main():
                 socket.close()
                 socket_closed += 1
         print(f"{socket_closed} sockets closed!")
-
 
 
 if __name__ == "__main__":
