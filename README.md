@@ -35,4 +35,5 @@ This program was made possible thanks to the following tools and resources. Do c
 - [Frida](https://frida.re/)
 - [apktool](https://apktool.org/)
 - https://cyberlinksecurity.ie/vulnerabilities-to-exploit-a-chinese-ip-camera/
+- [frida-dexdump](https://github.com/hluwa/frida-dexdump)
 
